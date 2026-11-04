@@ -23,12 +23,34 @@ struct AppState {
     pages: Vec<Page>,
 }
 
+fn is_russian_locale() -> bool {
+    if let Ok(lang) = std::env::var("SCHET_LANG") {
+        return lang.to_lowercase().starts_with("ru");
+    }
+    for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(val) = std::env::var(var) {
+            if !val.is_empty() {
+                return val.to_lowercase().starts_with("ru");
+            }
+        }
+    }
+    true
+}
+
+fn default_page_title(num: usize) -> String {
+    if is_russian_locale() {
+        format!("Лист {}", num)
+    } else {
+        format!("Sheet {}", num)
+    }
+}
+
 impl Default for AppState {
     fn default() -> Self {
         Self {
             active_page: 0,
             pages: vec![Page {
-                title: "Лист 1".to_string(),
+                title: default_page_title(1),
                 content: String::new(),
             }],
         }
@@ -46,18 +68,23 @@ fn state_file_path() -> PathBuf {
 }
 
 fn load_state() -> AppState {
+    let ru = is_russian_locale();
     let path = state_file_path();
     if let Ok(raw) = fs::read_to_string(path) {
         if let Ok(mut st) = serde_json::from_str::<AppState>(&raw) {
             if st.pages.is_empty() {
                 st.pages.push(Page {
-                    title: "Лист 1".to_string(),
+                    title: default_page_title(1),
                     content: String::new(),
                 });
             }
             for p in &mut st.pages {
-                if let Some(num) = p.title.strip_prefix("Page ") {
-                    p.title = format!("Лист {}", num);
+                if ru {
+                    if let Some(num) = p.title.strip_prefix("Page ").or_else(|| p.title.strip_prefix("Sheet ")) {
+                        p.title = format!("Лист {}", num);
+                    }
+                } else if let Some(num) = p.title.strip_prefix("Лист ").or_else(|| p.title.strip_prefix("Page ")) {
+                    p.title = format!("Sheet {}", num);
                 }
             }
             if st.active_page >= st.pages.len() {
@@ -426,25 +453,26 @@ fn main() {
     scrolled.add(&split_box);
     root_box.pack_start(&scrolled, true, true, 0);
 
-    // --- Single Bottom Hardware Bar (Russian, no auto-sum) ---
+    // --- Single Bottom Hardware Bar (locale-aware, no auto-sum) ---
+    let ru = is_russian_locale();
     let bottom_bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     bottom_bar.style_context().add_class("bottom-bar");
 
-    let brand_label = gtk::Label::new(Some("счёт"));
+    let brand_label = gtk::Label::new(Some(if ru { "счёт" } else { "schet" }));
     brand_label.style_context().add_class("brand-label");
     bottom_bar.pack_start(&brand_label, false, false, 0);
 
     let page_nav_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     let prev_page_btn = gtk::Button::with_label("‹");
     prev_page_btn.style_context().add_class("flat-btn");
-    prev_page_btn.set_tooltip_text(Some("Предыдущий лист"));
+    prev_page_btn.set_tooltip_text(Some(if ru { "Предыдущий лист" } else { "Previous sheet" }));
 
-    let page_title_label = gtk::Label::new(Some("Лист 1 · 1/1"));
+    let page_title_label = gtk::Label::new(Some(if ru { "Лист 1 · 1/1" } else { "Sheet 1 · 1/1" }));
     page_title_label.style_context().add_class("page-pill");
 
     let next_page_btn = gtk::Button::with_label("›");
     next_page_btn.style_context().add_class("flat-btn");
-    next_page_btn.set_tooltip_text(Some("Следующий лист"));
+    next_page_btn.set_tooltip_text(Some(if ru { "Следующий лист" } else { "Next sheet" }));
 
     page_nav_box.pack_start(&prev_page_btn, false, false, 0);
     page_nav_box.pack_start(&page_title_label, false, false, 0);
@@ -453,17 +481,17 @@ fn main() {
 
     let new_page_btn = gtk::Button::with_label("+");
     new_page_btn.style_context().add_class("flat-btn");
-    new_page_btn.set_tooltip_text(Some("Новый лист (Ctrl+N)"));
+    new_page_btn.set_tooltip_text(Some(if ru { "Новый лист (Ctrl+N)" } else { "New sheet (Ctrl+N)" }));
     bottom_bar.pack_start(&new_page_btn, false, false, 0);
 
-    let clear_btn = gtk::Button::with_label("Очистить");
+    let clear_btn = gtk::Button::with_label(if ru { "Очистить" } else { "Clear" });
     clear_btn.style_context().add_class("flat-btn");
-    clear_btn.set_tooltip_text(Some("Очистить лист (Ctrl+L)"));
+    clear_btn.set_tooltip_text(Some(if ru { "Очистить лист (Ctrl+L)" } else { "Clear sheet (Ctrl+L)" }));
     bottom_bar.pack_start(&clear_btn, false, false, 0);
 
-    let copy_all_btn = gtk::Button::with_label("Копировать");
+    let copy_all_btn = gtk::Button::with_label(if ru { "Копировать" } else { "Copy" });
     copy_all_btn.style_context().add_class("flat-btn");
-    copy_all_btn.set_tooltip_text(Some("Скопировать все ответы"));
+    copy_all_btn.set_tooltip_text(Some(if ru { "Скопировать все ответы" } else { "Copy all results" }));
     bottom_bar.pack_start(&copy_all_btn, false, false, 0);
 
     let status_right = gtk::Label::new(Some(""));
@@ -676,7 +704,11 @@ fn main() {
                     let formatted = format_number(*val);
                     let clip = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
                     clip.set_text(&formatted);
-                    status_right.set_text(&format!("Скопировано: {}", formatted));
+                    if ru {
+                        status_right.set_text(&format!("Скопировано: {}", formatted));
+                    } else {
+                        status_right.set_text(&format!("Copied: {}", formatted));
+                    }
                 }
             }
             glib::Propagation::Proceed
@@ -743,7 +775,7 @@ fn main() {
                         let active = st.active_page;
                         st.pages.remove(active);
                         for (idx, p) in st.pages.iter_mut().enumerate() {
-                            p.title = format!("Лист {}", idx + 1);
+                            p.title = default_page_title(idx + 1);
                         }
                         if st.active_page >= st.pages.len() {
                             st.active_page = st.pages.len() - 1;
@@ -756,12 +788,12 @@ fn main() {
                 };
                 if removed {
                     load_active_page();
-                    status_right.set_text("Лист удалён");
+                    status_right.set_text(if ru { "Лист удалён" } else { "Sheet deleted" });
                     return;
                 }
             }
             input_buf.set_text("");
-            status_right.set_text("Очищено");
+            status_right.set_text(if ru { "Очищено" } else { "Cleared" });
         });
     }
 
@@ -778,7 +810,11 @@ fn main() {
             let joined = lines.join("\n");
             let clip = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
             clip.set_text(&joined);
-            status_right.set_text(&format!("Скопировано строк: {}", lines.len()));
+            if ru {
+                status_right.set_text(&format!("Скопировано строк: {}", lines.len()));
+            } else {
+                status_right.set_text(&format!("Copied lines: {}", lines.len()));
+            }
         });
     }
 
@@ -791,7 +827,7 @@ fn main() {
                 let mut st = state.borrow_mut();
                 let next_num = st.pages.len() + 1;
                 st.pages.push(Page {
-                    title: format!("Лист {}", next_num),
+                    title: default_page_title(next_num),
                     content: String::new(),
                 });
                 st.active_page = st.pages.len() - 1;

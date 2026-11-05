@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="96" height="96" alt="schet logo">
+</p>
+
 # schet (`счёт`)
 
 **A native Rust + GTK3 notepad calculator built because feeding 700+ MB of RAM to an entire Chromium instance just to split a pizza bill or figure out taxes is ridiculous.**
